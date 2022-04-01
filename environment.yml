@@ -1,0 +1,17 @@
+name: MTMR
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.6
+  - pytorch=1.10.1
+  - rdkit=2021.03.5
+  - jupyter
+  - pandas
+  - scipy
+  - tqdm
+  - pip
+  - pip:
+    - numpy
+    - scikit-learn==0.19.0
