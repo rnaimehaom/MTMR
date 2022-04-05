@@ -14,28 +14,29 @@ For more detail, please refer to Choi, Jonghwan, et al. "Collaboration of Metric
 --------------------------------------------------------------------------------------------
 ## SYSTEM REQUIERMENTS: 
 
-    - MTMR requires system memory larger than 8GB.
-	
-	- (if GPU is available) MTMR requires GPU memory larger than 4GB.
-    
+- MTMR requires system memory larger than 8GB.
+
+- (if GPU is available) MTMR requires GPU memory larger than 4GB.
+
 
 --------------------------------------------------------------------------------------------
 ## PYTHON LIBRARY REQUIERMENTS:
 
-    - We recommend to install via Anaconda
-	
-	- If you want to use only tensorflow-cpu:
+- We recommend to install via Anaconda
 
-'''bash
+- If you want to use only tensorflow-cpu:
+
+
+```bash
 conda env create -f environment.yml
 conda activate MTMR
-'''
+```
     
 
 --------------------------------------------------------------------------------------------
 ## Contact:
 
-    - Email: mathcombio@yonsei.ac.kr
+- Email: mathcombio@yonsei.ac.kr
 
 
 --------------------------------------------------------------------------------------------
