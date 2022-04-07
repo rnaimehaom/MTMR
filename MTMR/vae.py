@@ -340,7 +340,7 @@ class SmilesAutoencoder(nn.Module):
     
     def policy_gradient(self, dataset, reward_ft,
                         batch_size=1000, total_steps=2000, learning_rate=1e-4, discount_factor=0.995, buffer_size=2000, buffer_batch_size=50,
-                        validation_dataset=None, validation_repetition_size=1, scoring_ft=None,
+                        validation_dataset=None, validation_repetition_size=20, scoring_ft=None,
                         checkpoint_step=10, checkpoint_filepath=None, display_step=10, verbose=1):
         ## Flag of GPU
         use_cuda = torch.cuda.is_available()
