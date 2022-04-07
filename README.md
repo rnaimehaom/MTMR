@@ -33,7 +33,24 @@ git clone https://github.com/mathcom/MTMR.git
 cd MTMR
 conda env create -f environment.yml
 ```
-    
+
+
+--------------------------------------------------------------------------------------------
+## Data:
+
+- Before running tutorials, an user should unzip the files: DATA/drd2.zip and DATA/qed.zip
+
+- The following commands are for unzip:
+
+```bash
+cd DATA
+unzip drd2.zip
+unzip qed.zip
+cd ..
+```
+
+- Due to the large size of the sorafenib dataset, please contact me if you need the dataset.
+  
 
 --------------------------------------------------------------------------------------------
 ## Tutorials:
