@@ -1,6 +1,6 @@
 # MTMR: Molecule-to-Molecule Translation using Metric Learning and Reinforcement Learning
 
-<img src="figs/overview_of_MTMR.png" alt="thumbnail" width="800px" />
+<img src="figs/overview_of_MTMR.png" alt="thumbnail" width="600px" />
 
 We propose MTMR, a molecular translation model based on metric learning and reinforcement learning, to achieve property improvement and high structural similarity performance at once.
 
@@ -29,7 +29,7 @@ For more detail, please refer to Choi, Jonghwan, et al. "Collaboration of Metric
 - After installing Anaconda, please create a conda environment with the following commands:
 
 ```bash
-git clone 
+git clone https://github.com/mathcom/MTMR.git
 cd MTMR
 conda env create -f environment.yml
 ```
