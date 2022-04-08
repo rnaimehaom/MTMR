@@ -12,6 +12,8 @@ dependencies:
   - scipy
   - tqdm
   - requests
+  - matplotlib
+  - seaborn
   - pip
   - pip:
     - numpy
