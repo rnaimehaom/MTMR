@@ -11,7 +11,7 @@ MTMR requires molecule data represented by the format of simplified molecular-in
 For more detail, please refer to Choi, Jonghwan, et al. "Collaboration of Metric Learning and Reinforcement Learning Enables Molecule-to-Molecule Translation for Drug Discovery" (under review)
 
 
-* Latest update: 07 April 2022
+* Latest update: 29 April 2022
 
 --------------------------------------------------------------------------------------------
 ## SYSTEM REQUIERMENTS: 
@@ -56,6 +56,11 @@ cd ..
 ## Tutorials:
 
 - We provide several jupyter-notebooks for tutorials.
+  - 1_pretraining.ipynb
+  - 2_finetuning.ipynb
+  - 3_latent_space_analysis.ipynb
+  - 4_translation.ipynb
+  - 5_evaluation.ipynb
 
 - These tutorial files are available for reproducibility purposes.
 
