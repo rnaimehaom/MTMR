@@ -1,2 +1,5 @@
 *.pyc
 MTMR/__pycache__/*
+DATA/qed/*
+DATA/drd2/*
+.ipynb_checkpoints
