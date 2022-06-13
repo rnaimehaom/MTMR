@@ -15,6 +15,7 @@ def evaluate_metric(df_generated, smiles_train_high, score_fuction, threshold_si
                "AVERAGE_SIMILARITY":0.,
                "NOVELTY":0.,
                "SUCCESS":0.,
+               "SUCCESS_WO_NOVEL":0.,
                "DIVERSITY":0.}               
     
     ###################################
@@ -71,6 +72,21 @@ def evaluate_metric(df_generated, smiles_train_high, score_fuction, threshold_si
                 success += 1
     success /= (len(valid_generated) + 1e-8)
     metrics["SUCCESS"] = success
+    
+    ###################################
+    ## Metric 5-1) Success without Novelty condition
+    ###################################
+    success_wo_novel = 0
+    if lower_is_good:
+        for src, tgt in valid_generated:
+            if (similarity(src, tgt) > threshold_sim) and (score_fuction(tgt) < threshold_pro):
+                success_wo_novel += 1
+    else:
+        for src, tgt in valid_generated:
+            if (similarity(src, tgt) > threshold_sim) and (score_fuction(tgt) > threshold_pro):
+                success_wo_novel += 1
+    success_wo_novel /= (len(valid_generated) + 1e-8)
+    metrics["SUCCESS_WO_NOVEL"] = success_wo_novel
     
     ###################################
     ## Metric 6) Diversity
