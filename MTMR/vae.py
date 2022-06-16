@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 from torch.utils.data import Dataset, DataLoader
-from MTMR.evaluate import evaluate_metric
+from MTMR.evaluate import evaluate_metric_validation
 
 
 class RewardFunction(object):
@@ -23,7 +23,7 @@ class RewardFunction(object):
         
         QED
         - threshold_similarity = 0.3
-        - threshold_property = 0.75
+        - threshold_property = 0.7
         '''
         self.similarity_ft = similarity_ft
         self.scoring_ft = scoring_ft
@@ -340,7 +340,7 @@ class SmilesAutoencoder(nn.Module):
     
     def policy_gradient(self, dataset, reward_ft,
                         batch_size=1000, total_steps=2000, learning_rate=1e-4, discount_factor=0.995, buffer_size=2000, buffer_batch_size=50,
-                        validation_dataset=None, validation_repetition_size=20, scoring_ft=None,
+                        validation_dataset=None, validation_repetition_size=20, scoring_ft=None, threshold_sim=0.4, threshold_pro=0.5,
                         checkpoint_step=10, checkpoint_filepath=None, display_step=10, verbose=1):
         ## Flag of GPU
         use_cuda = torch.cuda.is_available()
@@ -425,9 +425,13 @@ class SmilesAutoencoder(nn.Module):
                 
                 if validation_dataset is not None:
                     df_generated_valid = self.molecular_transform(validation_dataset, K=validation_repetition_size, use_tqdm=False)
-                    df_metrics_valid = evaluate_metric(df_generated_valid, smiles_train_high, scoring_ft)
-                    df_metrics_valid = df_metrics_valid.T
-                    df_metrics_valid = df_metrics_valid.rename(index={0:step})
+                    properties_valid = []
+                    for smi_src, smi_tar in df_generated_valid.values:
+                        _, sim_val, prop_val = reward_ft(smi_src, smi_tar)
+                        properties_valid.append((smi_src, smi_tar, sim_val, prop_val))
+                    
+                    df_metrics_valid = evaluate_metric_validation(pd.DataFrame.from_records(properties_valid), validation_repetition_size, threshold_sim, threshold_pro)
+                    df_metrics_valid = df_metrics_valid.T.rename(index={0:step})
                     history_valid.append(df_metrics_valid)
                     log += f"  valid_ratio(va): {df_metrics_valid.loc[step, 'VALID_RATIO']:.3f}"
                     log += f"  similarity(va): {df_metrics_valid.loc[step, 'AVERAGE_SIMILARITY']:.3f}"

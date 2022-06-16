@@ -1,10 +1,10 @@
 """
-Written by Jonghwan Choi at 5 Apr 2022
+Written by Jonghwan Choi at 14 June 2022
 https://github.com/mathcom/MTMR
 """
-import rdkit
-from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem
+from rdkit import Chem
+from rdkit.DataStructs import TanimotoSimilarity
+from rdkit.Chem.AllChem import GetMorganFingerprintAsBitVect
 import rdkit.Chem.QED as QED
 import MTMR.drd2_scorer as DRD2
 
@@ -15,7 +15,7 @@ def rdkit_kekulize_handling(original_fn):
     def wrapper_fn(*args, **kwargs):
         try:
             score = original_fn(*args, **kwargs)
-        except rdkit.Chem.rdchem.KekulizeException:
+        except Chem.rdchem.KekulizeException:
             score = 0.
         finally:
             return score
@@ -27,11 +27,14 @@ def qed(s):
     if s is None:
         return 0.
     else:
-        mol = Chem.MolFromSmiles(s)
-        if mol is None:
+        try:
+            mol = Chem.MolFromSmiles(s)
+            if mol is None:
+                return 0.
+            else:
+                return QED.qed(mol)
+        except:
             return 0.
-        else:
-            return QED.qed(mol)
 
 
 def drd2(s):
@@ -51,9 +54,9 @@ def similarity(a, b):
     if amol is None or bmol is None:
         return 0.0
     else:
-        fp1 = AllChem.GetMorganFingerprintAsBitVect(amol, 2, nBits=2048, useChirality=False)
-        fp2 = AllChem.GetMorganFingerprintAsBitVect(bmol, 2, nBits=2048, useChirality=False)
-        return DataStructs.TanimotoSimilarity(fp1, fp2) 
+        fp1 = GetMorganFingerprintAsBitVect(amol, 2, nBits=2048, useChirality=False)
+        fp2 = GetMorganFingerprintAsBitVect(bmol, 2, nBits=2048, useChirality=False)
+        return TanimotoSimilarity(fp1, fp2) 
 
 
 
