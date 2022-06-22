@@ -10,9 +10,61 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 from torch.utils.data import Dataset, DataLoader
-from MTMR.evaluate import evaluate_metric_validation
+from MTMR.evaluate import evaluate_metric_validation, evaluate_metric_validation_multi
+from MTMR.properties import similarity
 
 
+class MultiRewardFunction(object):
+    def __init__(self, similarity_ft, scoring_ft_1, scoring_ft_2, threshold_similarity, threshold_property_1, threshold_property_2):
+        super(MultiRewardFunction, self).__init__()
+
+        self.similarity_ft = similarity_ft
+        self.scoring_ft_1 = scoring_ft_1
+        self.scoring_ft_2 = scoring_ft_2
+        self.threshold_similarity = threshold_similarity
+        self.threshold_property_1 = threshold_property_1
+        self.threshold_property_2 = threshold_property_2
+        
+    def __call__(self, smi_src, smi_tar):
+        score_pro_1 = self.scoring_ft_1(smi_tar)
+        score_pro_2 = self.scoring_ft_2(smi_tar)
+        score_sim = self.similarity_ft(smi_src, smi_tar)
+        if score_sim > self.threshold_similarity:
+            reward_1 = max((score_pro_1 - self.threshold_property_1) / (1. - self.threshold_property_1), 0.)
+            reward_2 = max((score_pro_2 - self.threshold_property_2) / (1. - self.threshold_property_2), 0.)
+            reward = np.sqrt(reward_1 * reward_2)
+            return (reward, score_sim, score_pro_1, score_pro_2)
+        else:
+            return (0., score_sim, score_pro_1, score_pro_2)
+
+
+class RewardFunctionLogP(object):
+    def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property):
+        super(RewardFunctionLogP, self).__init__()
+        '''
+        DRD2
+        - threshold_similarity = 0.3
+        - threshold_property = 0.
+        
+        QED
+        - threshold_similarity = 0.3
+        - threshold_property = 0.7
+        '''
+        self.similarity_ft = similarity_ft
+        self.scoring_ft = scoring_ft
+        self.threshold_similarity = threshold_similarity
+        self.threshold_property = threshold_property
+        
+    def __call__(self, smi_src, smi_tar):
+        score_pro = self.scoring_ft(smi_tar) - self.scoring_ft(smi_src)
+        score_sim = self.similarity_ft(smi_src, smi_tar)
+        if score_sim > self.threshold_similarity:
+            reward = max((score_pro - self.threshold_property) / (1. - self.threshold_property), 0.)
+            return (reward, score_sim, score_pro)
+        else:
+            return (0., score_sim, score_pro)
+        
+        
 class RewardFunction(object):
     def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property):
         super(RewardFunction, self).__init__()
@@ -50,15 +102,15 @@ class ReplayBufferDataset(Dataset):
         self.property_list = []
         self.pop_list = []
         
-    def push(self, smiles_src, smiles_tar, reward, similarity, property):
+    def push(self, smiles_src, smiles_tar, reward, sim, prop):
         self.smiles_src_list.append(smiles_src)
         self.smiles_tar_list.append(smiles_tar)
         self.reward_list.append(reward)
-        self.similarity_list.append(similarity)
-        self.property_list.append(property)
+        self.similarity_list.append(sim)
+        self.property_list.append(prop)
         
     def stats(self):
-        return np.mean(self.reward_list), np.mean(self.similarity_list), np.mean(self.property_list)
+        return np.mean(self.reward_list), np.mean(self.similarity_list), np.mean(self.property_list, axis=0)
         
     def pop(self):
         for idx in list(reversed(sorted(self.pop_list))):
@@ -79,15 +131,15 @@ class ReplayBufferDataset(Dataset):
         smiles_tar = self.smiles_tar_list[idx]
         length_tar = len(smiles_tar)
         reward = self.reward_list[idx]
-        similarity = self.similarity_list[idx]
-        property = self.property_list[idx]
+        sim = self.similarity_list[idx]
+        prop = self.property_list[idx]
         return {"smiles_src": smiles_src,
                 "length_src": length_src,
                 "smiles_tar": smiles_tar,
                 "length_tar": length_tar,
                 "reward": reward,
-                "similarity": similarity,
-                "property": property}
+                "similarity": sim,
+                "property": prop}
 
 
 class AnnealingScheduler(object):
@@ -340,21 +392,16 @@ class SmilesAutoencoder(nn.Module):
     
     def policy_gradient(self, dataset, reward_ft,
                         batch_size=1000, total_steps=2000, learning_rate=1e-4, discount_factor=0.995, buffer_size=2000, buffer_batch_size=50,
-                        validation_dataset=None, validation_repetition_size=20, scoring_ft=None, threshold_sim=0.4, threshold_pro=0.5,
+                        validation_dataset=None, validation_repetition_size=20,
+                        use_target=False,
                         checkpoint_step=10, checkpoint_filepath=None, display_step=10, verbose=1):
         ## Flag of GPU
         use_cuda = torch.cuda.is_available()
         
-        ## Verbose
-        if verbose > 0:
-            smiles_train_high = dataset.get_targets()
-            if scoring_ft is None:
-                scoring_ft = lambda smi:0.
-                
         ## Initialization for training
         step = 0
-        history = []
-        history_valid = []
+        self.history = []
+        self.history_valid = []
         replay_buffer = ReplayBufferDataset()
         
         while step < total_steps:
@@ -377,12 +424,22 @@ class SmilesAutoencoder(nn.Module):
                 batch_properties = np.array([reward_ft(smi_src[1:-1], smi_tar[1:-1]) for smi_tar in batch_tar_smiles], dtype=self._get_default_dtype())
                 
                 ## reward normalization
-                batch_reward = batch_properties[:,0]
-                batch_properties[:,0] = batch_reward / (np.max(batch_reward) + 1e-8)
+                #batch_reward = batch_properties[:,0]
+                #batch_properties[:,0] = batch_reward / (np.max(batch_reward) + 1e-8)
                 
                 ## append
-                for smi_tar, (rew_tar, sim_tar, pro_tar) in zip(batch_tar_smiles, batch_properties):
+                for smi_tar, (rew_tar, sim_tar), pro_tar in zip(batch_tar_smiles, batch_properties[:,:2], batch_properties[:,2:]):
                     if rew_tar > 0:
+                        replay_buffer.push(smi_src, smi_tar, rew_tar, sim_tar, pro_tar)
+                        
+                ## use_target
+                if use_target:
+                    smi_tar = batch["smiles_t"][0]
+                    batch_properties = np.array([reward_ft(smi_src[1:-1], smi_tar[1:-1])], dtype=self._get_default_dtype())
+                    rew_tar = batch_properties[0,0]
+                    sim_tar = batch_properties[0,1]
+                    pro_tar = batch_properties[0,2:]
+                    for _ in range(buffer_batch_size):
                         replay_buffer.push(smi_src, smi_tar, rew_tar, sim_tar, pro_tar)
                         
                 ## is buffer full?
@@ -400,16 +457,17 @@ class SmilesAutoencoder(nn.Module):
                 batch_length_tar = batch["length_tar"]
                 batch_reward = batch["reward"].to(self.device)
                 ## policy gradient
-                rl_loss = self.partial_policy_gradient(batch_encode_src, batch_length_src, batch_encode_tar, batch_length_tar, batch_reward, lr=learning_rate, gamma=discount_factor)
+                rl_loss = self.partial_policy_gradient(batch_encode_src, batch_length_src, batch_encode_tar, batch_length_tar, batch_reward,
+                                                       lr=learning_rate, gamma=discount_factor)
                 ## buffer update
                 replay_buffer.pop()
                 break
             
             ## history
-            history.append((rl_loss,
-                            avg_reward,
-                            avg_similarity,
-                            avg_properties))
+            if type(avg_properties) is float:
+                self.history.append((rl_loss, avg_reward, avg_similarity, avg_properties))
+            else:
+                self.history.append((rl_loss, avg_reward, avg_similarity, *avg_properties))
             
             ## model save
             if (checkpoint_filepath is not None) and (step % checkpoint_step == 0):
@@ -421,21 +479,38 @@ class SmilesAutoencoder(nn.Module):
                 log += f"  loss: {rl_loss:.3f}"
                 log += f"  reward: {avg_reward:.3f}"
                 log += f"  similarity: {avg_similarity:.3f}"
-                log += f"  property: {avg_properties:.3f}"
+                if type(avg_properties) is float:
+                    log += f"  property: {avg_properties:.3f}"
+                else:
+                    for i, avg_prop in enumerate(avg_properties):
+                        log += f"  property[{i}]: {avg_prop:.3f}"
                 
                 if validation_dataset is not None:
                     df_generated_valid = self.molecular_transform(validation_dataset, K=validation_repetition_size, use_tqdm=False)
                     properties_valid = []
                     for smi_src, smi_tar in df_generated_valid.values:
-                        _, sim_val, prop_val = reward_ft(smi_src, smi_tar)
-                        properties_valid.append((smi_src, smi_tar, sim_val, prop_val))
-                    
-                    df_metrics_valid = evaluate_metric_validation(pd.DataFrame.from_records(properties_valid), validation_repetition_size, threshold_sim, threshold_pro)
-                    df_metrics_valid = df_metrics_valid.T.rename(index={0:step})
-                    history_valid.append(df_metrics_valid)
-                    log += f"  valid_ratio(va): {df_metrics_valid.loc[step, 'VALID_RATIO']:.3f}"
-                    log += f"  similarity(va): {df_metrics_valid.loc[step, 'AVERAGE_SIMILARITY']:.3f}"
-                    log += f"  property(va): {df_metrics_valid.loc[step, 'AVERAGE_PROPERTY']:.3f}"
+                        outs_val = reward_ft(smi_src, smi_tar)
+                        sim_val = outs_val[1]
+                        prop_val = outs_val[2:]
+                        properties_valid.append((smi_src, smi_tar, sim_val, *prop_val))
+                        
+                    if len(properties_valid[0]) > 4:
+                        df_metrics_valid = evaluate_metric_validation_multi(pd.DataFrame.from_records(properties_valid),
+                                                                            validation_repetition_size)
+                        df_metrics_valid = df_metrics_valid.T.rename(index={0:step})
+                        self.history_valid.append(df_metrics_valid)
+                        log += f"  valid_ratio(va): {df_metrics_valid.loc[step, 'VALID_RATIO']:.3f}"
+                        log += f"  similarity(va): {df_metrics_valid.loc[step, 'AVERAGE_SIMILARITY']:.3f}"
+                        log += f"  property_1(va): {df_metrics_valid.loc[step, 'AVERAGE_PROPERTY_1']:.3f}"
+                        log += f"  property_2(va): {df_metrics_valid.loc[step, 'AVERAGE_PROPERTY_2']:.3f}"
+                    else:
+                        df_metrics_valid = evaluate_metric_validation(pd.DataFrame.from_records(properties_valid),
+                                                                      validation_repetition_size)
+                        df_metrics_valid = df_metrics_valid.T.rename(index={0:step})
+                        self.history_valid.append(df_metrics_valid)
+                        log += f"  valid_ratio(va): {df_metrics_valid.loc[step, 'VALID_RATIO']:.3f}"
+                        log += f"  similarity(va): {df_metrics_valid.loc[step, 'AVERAGE_SIMILARITY']:.3f}"
+                        log += f"  property(va): {df_metrics_valid.loc[step, 'AVERAGE_PROPERTY']:.3f}"
                 
                 print(log)
                 
@@ -443,11 +518,11 @@ class SmilesAutoencoder(nn.Module):
             if step >= total_steps: break
             step += 1
             
-        df_history_valid = pd.concat(history_valid)
-        df_history = pd.DataFrame(history, columns=["LOSS",
-                                                    "REWARD",
-                                                    "SIMILARITY",
-                                                    "PROPERTY"])
+        df_history_valid = pd.concat(self.history_valid)
+        if len(history[0]) > 4:
+            df_history = pd.DataFrame(self.history, columns=["LOSS", "REWARD", "SIMILARITY", "PROPERTY_1", "PROPERTY_2"])
+        else:
+            df_history = pd.DataFrame(self.history, columns=["LOSS", "REWARD", "SIMILARITY", "PROPERTY"])
         return df_history, df_history_valid
     
     
@@ -505,7 +580,7 @@ class SmilesAutoencoder(nn.Module):
     
     def fit(self, dataset,
             batch_size=100, total_steps=100000, learning_rate=1e-3,
-            validation_dataset=None, validation_repetition_size=20, scoring_ft=None,
+            validation_dataset=None, validation_repetition_size=20,
             checkpoint_step=1000, checkpoint_filepath=None, display_step=1000, verbose=1):
         ## Flag of GPU
         use_cuda = torch.cuda.is_available()
@@ -513,12 +588,6 @@ class SmilesAutoencoder(nn.Module):
         ## Scheduler
         calc_beta  = AnnealingScheduler(total_steps) # regulariation strength for contractive loss
         calc_gamma = AnnealingScheduler(total_steps) # regulariation strength for margin loss
-        
-        ## Verbose
-        if verbose > 0:
-            smiles_train_high = dataset.get_targets()
-            if scoring_ft is None:
-                scoring_ft = lambda smi:0.
         
         ## Initialization for training
         step = 0
@@ -577,14 +646,19 @@ class SmilesAutoencoder(nn.Module):
                     log += f"  gamma: {gamma:.3f}"
                     
                     if validation_dataset is not None:
-                        df_generated_valid = self.molecular_transform(validation_dataset, use_tqdm=False)
-                        df_metrics_valid = evaluate_metric(df_generated_valid, smiles_train_high, scoring_ft)
-                        df_metrics_valid = df_metrics_valid.T
-                        df_metrics_valid = df_metrics_valid.rename(index={0:step})
+                        df_generated_valid = self.molecular_transform(validation_dataset, K=validation_repetition_size, use_tqdm=False)
+                        properties_valid = []
+                        for smi_src, smi_tar in df_generated_valid.values:
+                            sim_val = similarity(smi_src, smi_tar)
+                            prop_val = 0.999 # this value is not important and just for logging
+                            properties_valid.append((smi_src, smi_tar, sim_val, prop_val))
+                        
+                        df_metrics_valid = evaluate_metric_validation(pd.DataFrame.from_records(properties_valid), validation_repetition_size)
+                        df_metrics_valid = df_metrics_valid.T.rename(index={0:step})
                         history_valid.append(df_metrics_valid)
                         log += f"  valid_ratio(va): {df_metrics_valid.loc[step, 'VALID_RATIO']:.3f}"
                         log += f"  similarity(va): {df_metrics_valid.loc[step, 'AVERAGE_SIMILARITY']:.3f}"
-                    
+                        
                     print(log)
                 
                 ## termination
