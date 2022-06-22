@@ -5,27 +5,11 @@ https://github.com/mathcom/MTMR
 import tqdm
 import numpy as np
 import pandas as pd
-from MTMR.properties import similarity, get_kekuleSmiles
+from MTMR.properties import similarity, get_kekuleSmiles, FastTanimotoOneToBulk
 from rdkit.Chem.rdmolfiles import MolFromSmiles, MolToSmiles
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
 from multiprocessing import Pool
-
-
-def calc_sim(args):
-    return similarity(*args)
-
-
-def similarity_max(smi, smiles_train_high, use_pool=False, ncpu=10):
-    if use_pool:
-        with Pool(ncpu) as p:
-            sim_list = p.map(calc_sim, [(smi, smi_tr) for smi_tr in smiles_train_high])
-        sim = np.max(sim_list)
-    else:
-        sim = 0.
-        for smi_tr in smiles_train_high:
-            sim = max(sim, similarity(smi, smi_tr))
-    return sim
 
 
 def evaluate_metric(df_generated, smiles_train_high, num_decode=20, threshold_sim=0.4, threshold_pro=0.5):
@@ -115,7 +99,7 @@ def evaluate_metric(df_generated, smiles_train_high, num_decode=20, threshold_si
     return df_metrics
 
 
-def evaluate_metric_v2(df_generated, smiles_train_high, num_decode=20, threshold_sim=0.4, threshold_pro=0.5, use_pool=False):
+def evaluate_metric_v2(df_generated, smiles_train_high, num_decode=20, threshold_sim=0.4, threshold_pro=0.5):
     metrics = {"VALID_RATIO":0.,
                "AVERAGE_PROPERTY":0.,
                "AVERAGE_SIMILARITY":0.,
@@ -132,6 +116,8 @@ def evaluate_metric_v2(df_generated, smiles_train_high, num_decode=20, threshold
     
     num_molecules = len(df_generated) // num_decode
     assert len(df_generated) % num_decode == 0
+    
+    CALC_MAX_SIM = FastTanimotoOneToBulk(smiles_train_high)
     
     for i in tqdm.trange(0, len(df_generated), num_decode):
         sources = set([x for x in df_generated.iloc[i:i+num_decode, 0]])
@@ -163,7 +149,7 @@ def evaluate_metric_v2(df_generated, smiles_train_high, num_decode=20, threshold
         ###################################
         targets_sim_max = []
         for tar, sim, prop in targets_valid:
-            targets_sim_max.append((tar, sim, prop, similarity_max(tar, smiles_train_high, use_pool)))
+            targets_sim_max.append((tar, sim, prop, CALC_MAX_SIM(tar)))
         
         targets_novel = [(tar,sim,prop) for tar, sim, prop, sim_max in targets_sim_max if sim_max < 1]
         #targets_novel = [(tar,sim,prop) for tar, sim, prop in targets_valid if tar not in smiles_train_high]

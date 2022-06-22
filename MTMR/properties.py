@@ -18,6 +18,7 @@ import networkx as nx
 from MTMR.gsk3_scorer import gsk3_model
 from MTMR.jnk3_scorer import jnk3_model
 
+import numpy as np
 from numpy.core.umath_tests import inner1d
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -139,6 +140,20 @@ def similarity(a, b):
         return TanimotoSimilarity(fp1, fp2) 
 
 
+class FastTanimotoOneToBulk:
+    def __init__(self, bs):
+        self.bs = bs
+        self.b_fps = np.vstack([self._fingerprints_from_smi(smi) for smi in self.bs])
+        
+    def __call__(self, a):
+        a_fp = self._fingerprints_from_smi(a)
+        return np.max( (a_fp&self.b_fps).sum(axis=1) / (a_fp|self.b_fps).sum(axis=1) )
+        
+    def _fingerprints_from_smi(self, smi):
+        mol = Chem.MolFromSmiles(smi)
+        fp = GetMorganFingerprintAsBitVect(mol, 2, nBits=2048, useChirality=False)
+        nfp = np.array([b=='1' for b in fp.ToBitString()])
+        return nfp
 
 
 if __name__ == "__main__":
@@ -148,3 +163,18 @@ if __name__ == "__main__":
     print(penalized_logp(ex))
     print(gsk3()(ex))
     print(jnk3()(ex))
+    
+    bulks = ['N#CC1=CC=CC=C1COC1=CC=CC(C(=O)N2CCN(C3=CC=C(Br)C=N3)CC2)=C1',
+             'C[N+](C)(C)CCOC(=O)C1(C2=CC=CC=C2)CCCC1',
+             'O=C(CN1C(=O)C(=CC2=CC=CO2)SC1=S)NCCC1=CNC2=CC=CC=C12',
+             'CC1=CC=C(CN(C)CN2C(=O)NC3(CCCCC3C)C2=O)C=C1',
+             'O=C(NC1CC1)C1CCN(C2=NC=CC=N2)CC1',
+             'CC(=O)C1=CC=C(OCC(=O)N2CCN(C3=CC=CC=C3F)CC2)C=C1',
+             'O=C(CSC1=NC=CN1C1CC1)N1CCN(C2=CC=CC(C(F)(F)F)=C2)CC1']
+    
+    max_sim = 0.
+    for b in bulks:
+        max_sim = max(max_sim, similarity(ex, b))
+    print(max_sim)
+    
+    print(FastTanimotoOneToBulk(bulks)(ex))
