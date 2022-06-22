@@ -3,10 +3,8 @@ import numpy as np
 from rdkit import Chem
 from rdkit import rdBase
 from rdkit.Chem import AllChem
-from rdkit import DataStructs
 from sklearn import svm
 import pickle
-import re
 import os.path as op
 rdBase.DisableLog('rdApp.error')
 
