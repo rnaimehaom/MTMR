@@ -66,7 +66,7 @@ class RewardFunctionLogP(object):
         
         
 class RewardFunction(object):
-    def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property):
+    def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property, p=1, score_maximum=1.):
         super(RewardFunction, self).__init__()
         '''
         DRD2
@@ -81,15 +81,28 @@ class RewardFunction(object):
         self.scoring_ft = scoring_ft
         self.threshold_similarity = threshold_similarity
         self.threshold_property = threshold_property
+        self.p = p
+        self.score_maximum = score_maximum
+        ## backup
+        self._threshold_similarity = threshold_similarity
+        self._threshold_property = threshold_property
         
     def __call__(self, smi_src, smi_tar):
         score_pro = self.scoring_ft(smi_tar)
         score_sim = self.similarity_ft(smi_src, smi_tar)
         if score_sim > self.threshold_similarity:
-            reward = max((score_pro - self.threshold_property) / (1. - self.threshold_property), 0.)
+            reward = max((score_pro - self.threshold_property) / (self.score_maximum - self.threshold_property), 0.)
+            reward = reward ** self.p
             return (reward, score_sim, score_pro)
         else:
             return (0., score_sim, score_pro)
+        
+    def update_thresholds(self, threshold_similarity=None, threshold_property=None):
+        if threshold_similarity is not None:
+            self.threshold_similarity = threshold_similarity
+            
+        if threshold_property is not None:
+            self.threshold_property = threshold_property
 
 
 class ReplayBufferDataset(Dataset):
@@ -393,7 +406,7 @@ class SmilesAutoencoder(nn.Module):
     def policy_gradient(self, dataset, reward_ft,
                         batch_size=1000, total_steps=2000, learning_rate=1e-4, discount_factor=0.995, buffer_size=2000, buffer_batch_size=50,
                         validation_dataset=None, validation_repetition_size=20,
-                        use_target=False,
+                        use_adaptive_threshold=False,
                         checkpoint_step=10, checkpoint_filepath=None, display_step=10, verbose=1):
         ## Flag of GPU
         use_cuda = torch.cuda.is_available()
@@ -423,25 +436,19 @@ class SmilesAutoencoder(nn.Module):
                 smi_src = batch["smiles_s"][0]
                 batch_properties = np.array([reward_ft(smi_src[1:-1], smi_tar[1:-1]) for smi_tar in batch_tar_smiles], dtype=self._get_default_dtype())
                 
-                ## reward normalization
-                #batch_reward = batch_properties[:,0]
-                #batch_properties[:,0] = batch_reward / (np.max(batch_reward) + 1e-8)
-                
                 ## append
                 for smi_tar, (rew_tar, sim_tar), pro_tar in zip(batch_tar_smiles, batch_properties[:,:2], batch_properties[:,2:]):
                     if rew_tar > 0:
                         replay_buffer.push(smi_src, smi_tar, rew_tar, sim_tar, pro_tar)
                         
-                ## use_target
-                if use_target:
-                    smi_tar = batch["smiles_t"][0]
-                    batch_properties = np.array([reward_ft(smi_src[1:-1], smi_tar[1:-1])], dtype=self._get_default_dtype())
-                    rew_tar = batch_properties[0,0]
-                    sim_tar = batch_properties[0,1]
-                    pro_tar = batch_properties[0,2:]
-                    for _ in range(buffer_batch_size):
-                        replay_buffer.push(smi_src, smi_tar, rew_tar, sim_tar, pro_tar)
-                        
+                ## replay pretraining data
+                smi_tar = batch["smiles_t"][0]
+                batch_properties = np.array([reward_ft(smi_src[1:-1], smi_tar[1:-1])], dtype=self._get_default_dtype())
+                rew_tar = batch_properties[0,0]
+                sim_tar = batch_properties[0,1]
+                pro_tar = batch_properties[0,2:]
+                replay_buffer.push(smi_src, smi_tar, rew_tar, sim_tar, pro_tar)
+                
                 ## is buffer full?
                 if len(replay_buffer) >= buffer_size:
                     break
@@ -511,6 +518,9 @@ class SmilesAutoencoder(nn.Module):
                         log += f"  valid_ratio(va): {df_metrics_valid.loc[step, 'VALID_RATIO']:.3f}"
                         log += f"  similarity(va): {df_metrics_valid.loc[step, 'AVERAGE_SIMILARITY']:.3f}"
                         log += f"  property(va): {df_metrics_valid.loc[step, 'AVERAGE_PROPERTY']:.3f}"
+                        ## update the threshold of reward function
+                        if use_adaptive_threshold:
+                            reward_ft.update_thresholds(threshold_property = df_metrics_valid.loc[step, 'AVERAGE_PROPERTY'])
                 
                 print(log)
                 
@@ -519,7 +529,7 @@ class SmilesAutoencoder(nn.Module):
             step += 1
             
         df_history_valid = pd.concat(self.history_valid)
-        if len(history[0]) > 4:
+        if len(self.history[0]) > 4:
             df_history = pd.DataFrame(self.history, columns=["LOSS", "REWARD", "SIMILARITY", "PROPERTY_1", "PROPERTY_2"])
         else:
             df_history = pd.DataFrame(self.history, columns=["LOSS", "REWARD", "SIMILARITY", "PROPERTY"])
