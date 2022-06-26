@@ -69,14 +69,14 @@ def evaluate_metric(df_generated, smiles_train_high, num_decode=20, sample_size=
         ###################################
         ## Metric 5) Success
         ###################################
-        targets_success = [(tar,sim,prop) for tar,sim,prop in targets_novel if sim > threshold_sim and prop > threshold_pro]
+        targets_success = [(tar,sim,prop) for tar,sim,prop in targets_novel if sim >= threshold_sim and prop >= threshold_pro]
         if len(targets_success) > 0:
             metrics["SUCCESS"] += 1
             
         ###################################
         ## Metric 6) Success without novelty condition
         ###################################
-        targets_success_wo_novelty = [(tar,sim,prop) for tar,sim,prop in targets_valid if sim > threshold_sim and prop > threshold_pro]
+        targets_success_wo_novelty = [(tar,sim,prop) for tar,sim,prop in targets_valid if sim >= threshold_sim and prop >= threshold_pro]
         if len(targets_success_wo_novelty) > 0:
             metrics["SUCCESS_WO_NOVEL"] += 1
             

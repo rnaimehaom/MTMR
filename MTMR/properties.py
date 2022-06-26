@@ -145,9 +145,12 @@ class FastTanimotoOneToBulk:
         self.bs = bs
         self.b_fps = np.vstack([self._fingerprints_from_smi(smi) for smi in self.bs])
         
-    def __call__(self, a):
+    def __call__(self, a, reduction='max'):
         a_fp = self._fingerprints_from_smi(a)
-        return np.max( (a_fp&self.b_fps).sum(axis=1) / (a_fp|self.b_fps).sum(axis=1) )
+        if reduction == 'max':
+            return np.max( (a_fp&self.b_fps).sum(axis=1) / (a_fp|self.b_fps).sum(axis=1) )
+        else:
+            return (a_fp&self.b_fps).sum(axis=1) / (a_fp|self.b_fps).sum(axis=1)
         
     def _fingerprints_from_smi(self, smi):
         mol = Chem.MolFromSmiles(smi)
@@ -157,15 +160,15 @@ class FastTanimotoOneToBulk:
 
 
 if __name__ == "__main__":
-    ex = 'ClC1=CC=C2C(C=C(C(C)=O)C(C(NC3=CC(NC(NC4=CC(C5=C(C)C=CC=C5)=CC=C4)=O)=CC=C3)=O)=C2)=C1'
+    ex = 'COC1=NOC(C(=O)NC2=CC=CC=C2OC2=CC=CC=C2)=C1'
     print(drd2(ex))
     print(qed(ex))
     print(penalized_logp(ex))
     print(gsk3()(ex))
     print(jnk3()(ex))
     
-    bulks = ['N#CC1=CC=CC=C1COC1=CC=CC(C(=O)N2CCN(C3=CC=C(Br)C=N3)CC2)=C1',
-             'C[N+](C)(C)CCOC(=O)C1(C2=CC=CC=C2)CCCC1',
+    bulks = ['COC1=CC=C(Br)C=C1NC(=O)C1=CC(C(C)C)=NO1',
+             'COC1=CC=CC=C1NC(=O)C1=NOC(C(C)C)=C1',
              'O=C(CN1C(=O)C(=CC2=CC=CO2)SC1=S)NCCC1=CNC2=CC=CC=C12',
              'CC1=CC=C(CN(C)CN2C(=O)NC3(CCCCC3C)C2=O)C=C1',
              'O=C(NC1CC1)C1CCN(C2=NC=CC=N2)CC1',
@@ -177,4 +180,6 @@ if __name__ == "__main__":
         max_sim = max(max_sim, similarity(ex, b))
     print(max_sim)
     
-    print(FastTanimotoOneToBulk(bulks)(ex))
+    #print(FastTanimotoOneToBulk(bulks)(ex))
+    for sim in FastTanimotoOneToBulk(bulks)(ex, reduction=None):
+        print(sim)

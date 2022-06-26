@@ -39,7 +39,7 @@ class MultiRewardFunction(object):
 
 
 class RewardFunctionLogP(object):
-    def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property):
+    def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property, src_lb=None, src_ub=None, tar_lb=None, tar_ub=None):
         super(RewardFunctionLogP, self).__init__()
         '''
         DRD2
@@ -54,19 +54,29 @@ class RewardFunctionLogP(object):
         self.scoring_ft = scoring_ft
         self.threshold_similarity = threshold_similarity
         self.threshold_property = threshold_property
+        self.src_lb = src_lb
+        self.src_ub = src_ub
+        self.tar_lb = tar_lb
+        self.tar_ub = tar_ub
+        self.use_adaptive_norm = (self.src_lb is not None) and (self.src_ub is not None) and (self.tar_lb is not None) and (self.tar_ub is not None)
         
     def __call__(self, smi_src, smi_tar):
         score_pro = self.scoring_ft(smi_tar) - self.scoring_ft(smi_src)
         score_sim = self.similarity_ft(smi_src, smi_tar)
         if score_sim > self.threshold_similarity:
-            reward = max((score_pro - self.threshold_property) / (1. - self.threshold_property), 0.)
+            if self.use_adaptive_norm:
+                r1 = (score_pro - self.src_lb) / (self.src_ub - self.src_lb) * (0.05 - 0.) + 0.
+                r2 = (score_pro - self.tar_lb) / (self.tar_ub - self.tar_lb) * (1.0 - 0.5) + 0.5
+                reward = max(r1, r2)
+            else:
+                reward = max((score_pro - self.threshold_property) / (1. - self.threshold_property), 0.)
             return (reward, score_sim, score_pro)
         else:
             return (0., score_sim, score_pro)
         
         
 class RewardFunction(object):
-    def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property, p=1, score_maximum=1.):
+    def __init__(self, similarity_ft, scoring_ft, threshold_similarity, threshold_property, src_lb=None, src_ub=None, tar_lb=None, tar_ub=None):
         super(RewardFunction, self).__init__()
         '''
         DRD2
@@ -81,8 +91,11 @@ class RewardFunction(object):
         self.scoring_ft = scoring_ft
         self.threshold_similarity = threshold_similarity
         self.threshold_property = threshold_property
-        self.p = p
-        self.score_maximum = score_maximum
+        self.src_lb = src_lb
+        self.src_ub = src_ub
+        self.tar_lb = tar_lb
+        self.tar_ub = tar_ub
+        self.use_adaptive_norm = (self.src_lb is not None) and (self.src_ub is not None) and (self.tar_lb is not None) and (self.tar_ub is not None)
         ## backup
         self._threshold_similarity = threshold_similarity
         self._threshold_property = threshold_property
@@ -91,8 +104,12 @@ class RewardFunction(object):
         score_pro = self.scoring_ft(smi_tar)
         score_sim = self.similarity_ft(smi_src, smi_tar)
         if score_sim > self.threshold_similarity:
-            reward = max((score_pro - self.threshold_property) / (self.score_maximum - self.threshold_property), 0.)
-            reward = reward ** self.p
+            if self.use_adaptive_norm:
+                r1 = (score_pro - self.src_lb) / (self.src_ub - self.src_lb) * (0.05 - 0.) + 0.
+                r2 = (score_pro - self.tar_lb) / (self.tar_ub - self.tar_lb) * (1.0 - 0.5) + 0.5
+                reward = max(r1, r2)
+            else:
+                reward = max((score_pro - self.threshold_property) / (1. - self.threshold_property), 0.)
             return (reward, score_sim, score_pro)
         else:
             return (0., score_sim, score_pro)
@@ -419,7 +436,7 @@ class SmilesAutoencoder(nn.Module):
         
         while step < total_steps:
             ## Generate episodes to fill a replay buffer
-            for batch in DataLoader(dataset, batch_size=1, shuffle=True, drop_last=False, pin_memory=False):
+            for batch in DataLoader(dataset, batch_size=1, shuffle=True, drop_last=False, pin_memory=use_cuda):
                 ## input data preprocess
                 single_encode = dataset.encode(batch["smiles_s"], batch["length_s"].max()) # single_encode.shape = (1, seq)
                 single_length = batch["length_s"] # single_length.shape = (1, )
