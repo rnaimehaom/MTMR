@@ -38,14 +38,16 @@ conda env create -f environment.yml
 --------------------------------------------------------------------------------------------
 ## Data:
 
-- Before running tutorials, an user should unzip the files: DATA/drd2.zip and DATA/qed.zip
+- Before running tutorials, an user should decompress the compressed files: DATA/{name}.tar.gz
 
-- The following commands are for unzip:
+- The following commands are for decompression:
 
 ```bash
 cd DATA
-unzip drd2.zip
-unzip qed.zip
+tar -xzvf drd2.tar.gz
+tar -xzvf qed.tar.gz
+tar -xzvf logp04.tar.gz
+tar -xzvf logp06.tar.gz
 cd ..
 ```
 
