@@ -584,13 +584,14 @@ class SmilesAutoencoder(nn.Module):
     def fit(self, dataset,
             batch_size=100, total_steps=100000, learning_rate=1e-3,
             validation_dataset=None, validation_repetition_size=20,
-            checkpoint_step=1000, checkpoint_filepath=None, display_step=1000, verbose=1):
+            checkpoint_step=1000, checkpoint_filepath=None, display_step=1000, 
+            use_contractive=True, use_margin=True, verbose=1):
         ## Flag of GPU
         use_cuda = torch.cuda.is_available()
         
         ## Scheduler
-        calc_beta  = AnnealingScheduler(total_steps) # regulariation strength for contractive loss
-        calc_gamma = AnnealingScheduler(total_steps) # regulariation strength for margin loss
+        calc_beta = AnnealingScheduler(total_steps) if use_contractive else lambda x:0 # regulariation strength for contractive loss
+        calc_gamma = AnnealingScheduler(total_steps) if use_margin else lambda x:0 # regulariation strength for margin loss
         
         ## Initialization for training
         step = 0
@@ -612,7 +613,7 @@ class SmilesAutoencoder(nn.Module):
                 ## fit
                 beta  = calc_beta(step)
                 gamma = calc_gamma(step)
-                batch_loss = self.partial_fit(*batch_inputs, lr=learning_rate, beta=beta)
+                batch_loss = self.partial_fit(*batch_inputs, lr=learning_rate, beta=beta, gamma=gamma)
                 
                 ## loss for training data
                 loss_train             = batch_loss[0]
@@ -681,7 +682,7 @@ class SmilesAutoencoder(nn.Module):
         return df_history, df_history_valid
     
     
-    def partial_fit(self, smiles_A, length_A, smiles_B, length_B, smiles_C, length_C, lr=1e-3, beta=1., gamma=None):
+    def partial_fit(self, smiles_A, length_A, smiles_B, length_B, smiles_C, length_C, lr=1e-3, beta=1., gamma=1.):
         '''
         Params
         ------
@@ -690,7 +691,6 @@ class SmilesAutoencoder(nn.Module):
         '''
         batch_size = smiles_A.size(0)
         assert batch_size == smiles_B.size(0)
-        if gamma is None: gamma = beta
         
         ## Training phase
         self.train()
