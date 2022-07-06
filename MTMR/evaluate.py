@@ -1,30 +1,27 @@
 """
-Written by Jonghwan Choi at 5 Apr 2022
+Written by Jonghwan Choi at 06 July 2022
 https://github.com/mathcom/MTMR
 """
 import tqdm
 import numpy as np
 import pandas as pd
-from MTMR.properties import similarity, get_kekuleSmiles, FastTanimotoOneToBulk
+from MTMR.properties import FastTanimotoOneToBulk
 from rdkit.Chem.rdmolfiles import MolFromSmiles, MolToSmiles
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
-from multiprocessing import Pool
 
-
-def evaluate_metric(df_generated, smiles_train_high, num_decode=20, sample_size=None, start_idx=0, threshold_sim=0.4, threshold_pro=0.0):
+def evaluate_metric(df_generated, smiles_train_high, num_decode=20, threshold_sim=0.4, threshold_pro=0.0):
     metrics = {"VALID_RATIO":0.,
-               "AVERAGE_PROPERTY":0.,
-               "AVERAGE_SIMILARITY":0.,
+               "PROPERTY":0.,
+               "IMPROVEMENT":0.,
+               "SIMILARITY":0.,
                "NOVELTY":0.,
                "SUCCESS":0.,
                "SUCCESS_WO_NOVEL":0.,
                "DIVERSITY":0.}
     
-    sample_size = num_decode if sample_size is None else max(1, min(sample_size, num_decode))
     num_molecules = len(df_generated) // num_decode
     assert len(df_generated) % num_decode == 0
-    assert start_idx + sample_size <= num_decode
     
     for i in range(0, len(df_generated), num_decode):
         sources = set([x for x in df_generated.iloc[i:i+num_decode, 0]])
@@ -34,13 +31,9 @@ def evaluate_metric(df_generated, smiles_train_high, num_decode=20, sample_size=
         ## Metric 1) Validity
         ###################################
         targets_valid = []
-        for _,tar,sim,prop_tar,prop_src in df_generated.iloc[i+start_idx:i+start_idx+sample_size,:].values:
-            try:
-                tar_keku = get_kekuleSmiles(tar)
-            except:
-                tar_keku = ''
-            if 1 > sim > 0 and prop_tar > 0 and tar_keku != '':
-                targets_valid.append((tar_keku, sim, prop_tar, prop_src))
+        for src,tar,sim,prop_tar,prop_src in df_generated.iloc[i:i+num_decode,:].values:
+            if 1 > sim > 0 and prop_tar > 0:
+                targets_valid.append((tar, sim, prop_tar, prop_src))
                 
         if len(targets_valid) > 0:
             metrics["VALID_RATIO"] += 1
@@ -50,14 +43,21 @@ def evaluate_metric(df_generated, smiles_train_high, num_decode=20, sample_size=
         ###################################
         targets_valid_prop = [prop for _, _, prop, _ in targets_valid]
         if len(targets_valid_prop) > 0:
-            metrics["AVERAGE_PROPERTY"] += np.mean(targets_valid_prop)
+            metrics["PROPERTY"] += np.mean(targets_valid_prop)
+    
+        ###################################
+        ## Metric 2) Improvement
+        ###################################
+        targets_valid_impr = [prop_tar - prop_src for _, _, prop_tar, prop_src in targets_valid]
+        if len(targets_valid_impr) > 0:
+            metrics["IMPROVEMENT"] += np.mean(targets_valid_impr)
     
         ###################################
         ## Metric 3) Similarity
         ###################################
         targets_valid_sim = [sim for _, sim, _, _ in targets_valid]
         if len(targets_valid_sim) > 0:
-            metrics["AVERAGE_SIMILARITY"] += np.mean(targets_valid_sim)
+            metrics["SIMILARITY"] += np.mean(targets_valid_sim)
     
         ###################################
         ## Metric 4) Novelty
@@ -83,110 +83,25 @@ def evaluate_metric(df_generated, smiles_train_high, num_decode=20, sample_size=
         ###################################
         ## Metric 6) Diversity
         ###################################
-        targets_unique = set([tar for tar,sim,prop_tar,prop_src in targets_valid])
         if len(targets_valid) > 1:
-            metrics["DIVERSITY"] += len(targets_unique) / len(targets_valid)
+            calc_bulk_sim = FastTanimotoOneToBulk([x[0] for x in targets_valid])
+            targets_diversity = []            
+            for j in range(len(targets_valid)):
+                div = calc_bulk_sim(targets_valid[j][0])
+                targets_diversity += div[:j-1].tolist() + div[j+1:].tolist()
+            metrics["DIVERSITY"] += np.mean(targets_diversity)
     
     ###################################
     ## Final average
     ###################################
-    metrics["VALID_RATIO"]        /= num_molecules
-    metrics["AVERAGE_PROPERTY"]   /= num_molecules
-    metrics["AVERAGE_SIMILARITY"] /= num_molecules
-    metrics["NOVELTY"]            /= num_molecules
-    metrics["SUCCESS"]            /= num_molecules
-    metrics["SUCCESS_WO_NOVEL"]   /= num_molecules
-    metrics["DIVERSITY"]          /= num_molecules
-  
-    df_metrics = pd.Series(metrics).to_frame()
-    return df_metrics
-
-
-def evaluate_metric_v2(df_generated, smiles_train_high, num_decode=20, sample_size=None, start_idx=0, threshold_sim=0.4, threshold_pro=0.5):
-    metrics = {"VALID_RATIO":0.,
-               "AVERAGE_PROPERTY":0.,
-               "AVERAGE_SIMILARITY":0.,
-               "NOVELTY":0.,
-               "SUCCESS":0.,
-               "SUCCESS_WO_NOVEL":0.,
-               "DIVERSITY":0.}
-    
-    sample_size = num_decode if sample_size is None else max(1, min(sample_size, num_decode))
-    num_molecules = len(df_generated) // num_decode
-    assert len(df_generated) % num_decode == 0
-    assert start_idx + sample_size <= num_decode
-    
-    for i in range(0, len(df_generated), num_decode):
-        sources = set([x for x in df_generated.iloc[i:i+num_decode, 0]])
-        assert len(sources) == 1
-        
-        ###################################
-        ## Metric 1) Validity
-        ###################################
-        targets_valid = []
-        for _,tar,sim,prop in df_generated.iloc[i+start_idx:i+start_idx+sample_size,:].values:
-            try:
-                tar_keku = get_kekuleSmiles(tar)
-            except:
-                tar_keku = ''
-            if 1 > sim > 0 and prop > 0 and tar_keku != '':
-                targets_valid.append((tar_keku, sim, prop))
-                
-        if len(targets_valid) > 0:
-            metrics["VALID_RATIO"] += 1
-            
-        ###################################
-        ## Metric 2) Property
-        ###################################
-        targets_valid_prop = [prop for _, _, prop in targets_valid]
-        if len(targets_valid_prop) > 0:
-            metrics["AVERAGE_PROPERTY"] += np.mean(targets_valid_prop)
-    
-        ###################################
-        ## Metric 3) Similarity
-        ###################################
-        targets_valid_sim = [sim for _, sim, _ in targets_valid]
-        if len(targets_valid_sim) > 0:
-            metrics["AVERAGE_SIMILARITY"] += np.mean(targets_valid_sim)
-    
-        ###################################
-        ## Metric 4) Novelty
-        ###################################
-        targets_novel = [(tar,sim,prop) for tar, sim, prop in targets_valid if tar not in smiles_train_high]
-        if len(targets_novel) > 0:
-            metrics["NOVELTY"] += 1
-            
-        ###################################
-        ## Metric 5) Success
-        ###################################
-        targets_success = [(tar,sim,prop) for tar,sim,prop in targets_novel if sim >= threshold_sim and prop >= threshold_pro]
-        if len(targets_success) > 0:
-            metrics["SUCCESS"] += 1
-            
-        ###################################
-        ## Metric 6) Success without novelty condition
-        ###################################
-        targets_success_wo_novelty = [(tar,sim,prop) for tar,sim,prop in targets_valid if sim >= threshold_sim and prop >= threshold_pro]
-        if len(targets_success_wo_novelty) > 0:
-            metrics["SUCCESS_WO_NOVEL"] += 1
-            
-        ###################################
-        ## Metric 6) Diversity
-        ###################################
-        targets_unique = set([tar for tar,sim,prop in targets_valid if tar != 'None'])
-        if len(targets_valid) > 0:
-            metrics["DIVERSITY"] += len(targets_unique) / len(targets_valid)
-    
-    ###################################
-    ## Final average
-    ###################################
-    metrics["VALID_RATIO"]        /= num_molecules
-    metrics["AVERAGE_PROPERTY"]   /= num_molecules
-    metrics["AVERAGE_SIMILARITY"] /= num_molecules
-    metrics["NOVELTY"]            /= num_molecules
-    metrics["SUCCESS"]            /= num_molecules
-    metrics["SUCCESS_WO_NOVEL"]   /= num_molecules
-    metrics["DIVERSITY"]          /= num_molecules
+    metrics["VALID_RATIO"]         /= num_molecules
+    metrics["PROPERTY"]            /= num_molecules
+    metrics["IMPROVEMENT"]         /= num_molecules
+    metrics["SIMILARITY"]          /= num_molecules
+    metrics["NOVELTY"]             /= num_molecules
+    metrics["SUCCESS"]             /= num_molecules
+    metrics["SUCCESS_WO_NOVEL"]    /= num_molecules
+    metrics["DIVERSITY"]           /= num_molecules
   
     df_metrics = pd.Series(metrics).to_frame()
     return df_metrics
@@ -230,56 +145,6 @@ def evaluate_metric_validation(df_generated, num_decode=20):
     ###################################
     metrics["VALID_RATIO"]        /= num_molecules
     metrics["AVERAGE_PROPERTY"]   /= num_molecules
-    metrics["AVERAGE_SIMILARITY"] /= num_molecules
-  
-    df_metrics = pd.Series(metrics).to_frame()
-    return df_metrics
-
-
-def evaluate_metric_validation_multi(df_generated, num_decode=20):
-    metrics = {"VALID_RATIO":0.,
-               "AVERAGE_PROPERTY_1":0.,
-               "AVERAGE_PROPERTY_2":0.,
-               "AVERAGE_SIMILARITY":0.}               
-    
-    num_molecules = len(df_generated) // num_decode
-    assert len(df_generated) % num_decode == 0
-    
-    for i in range(0, len(df_generated), num_decode):
-        sources = set([x for x in df_generated.iloc[i:i+num_decode, 0]])
-        assert len(sources) == 1
-        
-        ###################################
-        ## Metric 1) Validity
-        ###################################
-        targets_valid = [(tar,sim,prop_1,prop_2) for _,tar,sim,prop_1,prop_2 in df_generated.iloc[i:i+num_decode,:].values if 1 > sim > 0 and prop_1 > 0 and prop_2 > 0]
-        if len(targets_valid) > 0:
-            metrics["VALID_RATIO"] += 1
-            
-        ###################################
-        ## Metric 2) Property
-        ###################################
-        targets_valid_prop_1 = [prop_1 for _, _, prop_1, _ in targets_valid]
-        if len(targets_valid_prop_1) > 0:
-            metrics["AVERAGE_PROPERTY_1"] += np.mean(targets_valid_prop_1)
-            
-        targets_valid_prop_2 = [prop_2 for _, _, _, prop_2 in targets_valid]
-        if len(targets_valid_prop_2) > 0:
-            metrics["AVERAGE_PROPERTY_2"] += np.mean(targets_valid_prop_2)
-    
-        ###################################
-        ## Metric 3) Similarity
-        ###################################
-        targets_valid_sim = [sim for _, sim, _, _ in targets_valid]
-        if len(targets_valid_sim) > 0:
-            metrics["AVERAGE_SIMILARITY"] += np.mean(targets_valid_sim)
-            
-    ###################################
-    ## Final average
-    ###################################
-    metrics["VALID_RATIO"]        /= num_molecules
-    metrics["AVERAGE_PROPERTY_1"] /= num_molecules
-    metrics["AVERAGE_PROPERTY_2"] /= num_molecules
     metrics["AVERAGE_SIMILARITY"] /= num_molecules
   
     df_metrics = pd.Series(metrics).to_frame()

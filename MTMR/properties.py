@@ -1,5 +1,5 @@
 """
-Written by Jonghwan Choi at 22 June 2022
+Written by Jonghwan Choi at 06 July 2022
 https://github.com/mathcom/MTMR
 """
 import os
@@ -8,7 +8,7 @@ MTMR_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 sys.path = sys.path if MTMR_PATH in sys.path else [MTMR_PATH] + sys.path
 
 from rdkit import Chem
-from rdkit.Chem import Descriptors
+from rdkit.Chem import Descriptors, rdFMCS
 from rdkit.DataStructs import TanimotoSimilarity
 from rdkit.Chem.AllChem import GetMorganFingerprintAsBitVect
 import rdkit.Chem.QED as QED
@@ -140,17 +140,28 @@ def similarity(a, b):
         return TanimotoSimilarity(fp1, fp2) 
 
 
+def mcs_similarity(a, b):
+    if a is None or b is None: 
+        return 0.0
+    amol = Chem.MolFromSmiles(a)
+    bmol = Chem.MolFromSmiles(b)
+    if amol is None or bmol is None:
+        return 0.0
+    else:
+        mcs = rdFMCS.FindMCS([amol, bmol], completeRingsOnly=True)
+        sim_atom = 2 * mcs.numAtoms / (amol.GetNumAtoms() + bmol.GetNumAtoms())
+        sim_bond = 2 * mcs.numBonds / (amol.GetNumBonds() + bmol.GetNumBonds())
+        return 0.5 * (sim_atom + sim_bond)
+
+
 class FastTanimotoOneToBulk:
     def __init__(self, bs):
         self.bs = bs
         self.b_fps = np.vstack([self._fingerprints_from_smi(smi) for smi in self.bs])
         
-    def __call__(self, a, reduction='max'):
+    def __call__(self, a):
         a_fp = self._fingerprints_from_smi(a)
-        if reduction == 'max':
-            return np.max( (a_fp&self.b_fps).sum(axis=1) / (a_fp|self.b_fps).sum(axis=1) )
-        else:
-            return (a_fp&self.b_fps).sum(axis=1) / (a_fp|self.b_fps).sum(axis=1)
+        return (a_fp&self.b_fps).sum(axis=1) / (a_fp|self.b_fps).sum(axis=1)
         
     def _fingerprints_from_smi(self, smi):
         mol = Chem.MolFromSmiles(smi)
