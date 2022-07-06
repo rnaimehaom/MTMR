@@ -10,32 +10,8 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 from torch.utils.data import Dataset, DataLoader
-from MTMR.evaluate import evaluate_metric_validation, evaluate_metric_validation_multi
+from MTMR.evaluate import evaluate_metric_validation
 from MTMR.properties import similarity
-
-
-class MultiRewardFunction(object):
-    def __init__(self, similarity_ft, scoring_ft_1, scoring_ft_2, threshold_similarity, threshold_property_1, threshold_property_2):
-        super(MultiRewardFunction, self).__init__()
-
-        self.similarity_ft = similarity_ft
-        self.scoring_ft_1 = scoring_ft_1
-        self.scoring_ft_2 = scoring_ft_2
-        self.threshold_similarity = threshold_similarity
-        self.threshold_property_1 = threshold_property_1
-        self.threshold_property_2 = threshold_property_2
-        
-    def __call__(self, smi_src, smi_tar):
-        score_pro_1 = self.scoring_ft_1(smi_tar)
-        score_pro_2 = self.scoring_ft_2(smi_tar)
-        score_sim = self.similarity_ft(smi_src, smi_tar)
-        if score_sim > self.threshold_similarity:
-            reward_1 = max((score_pro_1 - self.threshold_property_1) / (1. - self.threshold_property_1), 0.)
-            reward_2 = max((score_pro_2 - self.threshold_property_2) / (1. - self.threshold_property_2), 0.)
-            reward = np.sqrt(reward_1 * reward_2)
-            return (reward, score_sim, score_pro_1, score_pro_2)
-        else:
-            return (0., score_sim, score_pro_1, score_pro_2)
 
 
 class RewardFunctionLogP(object):
