@@ -10,14 +10,14 @@ from rdkit.Chem.rdmolfiles import MolFromSmiles, MolToSmiles
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
 
-def evaluate_metric(df_generated, smiles_train_high, num_decode=20, threshold_sim=0.4, threshold_pro=0.0):
+def evaluate_metric(df_generated, smiles_train_high, num_decode=20, threshold_sim=0.4, threshold_pro=0.0, threshold_improve=0.0):
     metrics = {"VALID_RATIO":0.,
                "PROPERTY":0.,
                "IMPROVEMENT":0.,
                "SIMILARITY":0.,
                "NOVELTY":0.,
-               "SUCCESS":0.,
-               "SUCCESS_WO_NOVEL":0.,
+               "SUCCESS_PROP":0.,
+               "SUCCESS_IMPR":0.,
                "DIVERSITY":0.}
     
     num_molecules = len(df_generated) // num_decode
@@ -67,41 +67,41 @@ def evaluate_metric(df_generated, smiles_train_high, num_decode=20, threshold_si
             metrics["NOVELTY"] += 1
             
         ###################################
-        ## Metric 5) Success
+        ## Metric 5) Success based on property
         ###################################
-        targets_success = [(tar,sim,prop_tar,prop_src) for tar,sim,prop_tar,prop_src in targets_novel if sim >= threshold_sim and prop_tar - prop_src >= threshold_pro]
+        targets_success = [(tar,sim,prop_tar,prop_src) for tar,sim,prop_tar,prop_src in targets_novel if sim >= threshold_sim and prop_tar >= threshold_pro]
         if len(targets_success) > 0:
-            metrics["SUCCESS"] += 1
+            metrics["SUCCESS_PROP"] += 1
             
         ###################################
-        ## Metric 6) Success without novelty condition
+        ## Metric 6) Success based on improvement
         ###################################
-        targets_success_wo_novelty = [(tar,sim,prop_tar,prop_src) for tar,sim,prop_tar,prop_src in targets_valid if sim >= threshold_sim and prop_tar - prop_src >= threshold_pro]
-        if len(targets_success_wo_novelty) > 0:
-            metrics["SUCCESS_WO_NOVEL"] += 1
+        targets_success_2 = [(tar,sim,prop_tar,prop_src) for tar,sim,prop_tar,prop_src in targets_novel if sim >= threshold_sim and prop_tar - prop_src > threshold_improve]
+        if len(targets_success_2) > 0:
+            metrics["SUCCESS_IMPR"] += 1
             
         ###################################
         ## Metric 6) Diversity
         ###################################
         if len(targets_valid) > 1:
             calc_bulk_sim = FastTanimotoOneToBulk([x[0] for x in targets_valid])
-            targets_diversity = []            
+            similarity_between_targets = []            
             for j in range(len(targets_valid)):
                 div = calc_bulk_sim(targets_valid[j][0])
-                targets_diversity += div[:j-1].tolist() + div[j+1:].tolist()
-            metrics["DIVERSITY"] += np.mean(targets_diversity)
+                similarity_between_targets += div[:j-1].tolist() + div[j+1:].tolist()
+            metrics["DIVERSITY"] += 1. - np.mean(similarity_between_targets)
     
     ###################################
     ## Final average
     ###################################
-    metrics["VALID_RATIO"]         /= num_molecules
-    metrics["PROPERTY"]            /= num_molecules
-    metrics["IMPROVEMENT"]         /= num_molecules
-    metrics["SIMILARITY"]          /= num_molecules
-    metrics["NOVELTY"]             /= num_molecules
-    metrics["SUCCESS"]             /= num_molecules
-    metrics["SUCCESS_WO_NOVEL"]    /= num_molecules
-    metrics["DIVERSITY"]           /= num_molecules
+    metrics["VALID_RATIO"]  /= num_molecules
+    metrics["PROPERTY"]     /= num_molecules
+    metrics["IMPROVEMENT"]  /= num_molecules
+    metrics["SIMILARITY"]   /= num_molecules
+    metrics["NOVELTY"]      /= num_molecules
+    metrics["SUCCESS_PROP"] /= num_molecules
+    metrics["SUCCESS_IMPR"] /= num_molecules
+    metrics["DIVERSITY"]    /= num_molecules
   
     df_metrics = pd.Series(metrics).to_frame()
     return df_metrics
